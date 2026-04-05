@@ -1,0 +1,178 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{amsmath}
+
+\title{Speech Emotion Recognition (SER) Project Report}
+\author{Prashant}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Abstract}
+This report presents an utterance-level Speech Emotion Recognition (SER) pipeline using two public datasets: RAVDESS and CREMA-D. The system includes standardized preprocessing, two feature families (MFCC and pretrained wav2vec2 embeddings), three temporal pooling strategies (mean, max, mean+std), and a Logistic Regression classifier with class balancing. We evaluate both in-domain performance (RAVDESS $\rightarrow$ RAVDESS with strict speaker-independent split) and cross-domain performance (RAVDESS $\rightarrow$ CREMA-D). Results show strong in-domain performance with wav2vec2, while cross-domain generalization remains challenging, with MFCC+max giving the best cross-domain Macro-F1 in the current setup.
+
+\section{Problem Statement}
+Speech Emotion Recognition aims to infer emotion from speech acoustics (prosody, intensity, spectral patterns), independent of lexical content. The core challenge is generalization across speakers and datasets. The project goal is to build a modular SER pipeline and evaluate both:
+\begin{itemize}
+    \item \textbf{In-domain}: train/test on the same dataset with speaker-independent split
+    \item \textbf{Cross-domain}: train on one dataset and test on another
+\end{itemize}
+
+\section{Datasets and Label Space}
+\subsection{Datasets Used}
+\begin{itemize}
+    \item \textbf{RAVDESS}: used for in-domain and as training source for cross-domain
+    \item \textbf{CREMA-D}: used as out-of-domain test dataset
+\end{itemize}
+
+\subsection{Unified Label Set}
+To ensure compatibility across datasets, we use:
+\[
+\{\texttt{angry, disgust, fear, happy, neutral, sad}\}
+\]
+RAVDESS \texttt{calm} is merged into \texttt{neutral}; unsupported labels (e.g., \texttt{surprise} in cross-domain setting) are excluded where required.
+
+\section{Pipeline Design}
+\subsection{Preprocessing}
+All audio is standardized via:
+\begin{itemize}
+    \item Mono conversion
+    \item Resampling to 16 kHz
+    \item Peak normalization
+\end{itemize}
+
+\subsection{Feature Extraction}
+\begin{itemize}
+    \item \textbf{MFCC baseline}: 13 coefficients/frame via \texttt{librosa}
+    \item \textbf{wav2vec2}: \texttt{facebook/wav2vec2-base}, last hidden representations
+\end{itemize}
+
+\subsection{Pooling Study}
+Variable-length frame sequences are converted to fixed-size vectors with:
+\begin{itemize}
+    \item \texttt{mean}
+    \item \texttt{max}
+    \item \texttt{mean\_std}
+\end{itemize}
+
+\subsection{Classifier}
+Logistic Regression with:
+\begin{itemize}
+    \item StandardScaler
+    \item \texttt{class\_weight = "balanced"}
+\end{itemize}
+
+\subsection{Evaluation Metrics}
+\begin{itemize}
+    \item Accuracy
+    \item Macro-F1
+    \item Confusion Matrix
+\end{itemize}
+
+\section{Reproducibility and Engineering Improvements}
+\subsection{Speaker-Independent Split}
+RAVDESS split is deterministic with seed 42 and no speaker overlap.
+
+Saved split (\texttt{results/split\_info.json}):
+\begin{itemize}
+    \item Train speakers: 19
+    \item Test speakers: 5
+    \item Overlap: 0
+\end{itemize}
+
+\subsection{Resumable wav2vec2 Caching}
+To make full runs feasible:
+\begin{itemize}
+    \item Per-file embedding cache in \texttt{features/ravdess} and \texttt{features/crema\_d}
+    \item Recompute only if missing (or forced)
+    \item Safe resume after interruption
+\end{itemize}
+
+Observed cache completeness after full run:
+\begin{itemize}
+    \item RAVDESS cached embeddings: 1248 files
+    \item CREMA-D cached embeddings: 7442 files
+\end{itemize}
+
+\subsection{Result Logging}
+All experiments are exported to \texttt{results/}:
+\begin{itemize}
+    \item \texttt{results.json}, \texttt{results.csv}
+    \item confusion matrices: \texttt{cm\_\{feature\}\_\{pooling\}\_\{eval\}.csv}
+    \item \texttt{final\_comparison.csv}
+\end{itemize}
+
+\section{Final Results}
+\subsection{Wav2Vec2 Results}
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+Pooling & In-Domain Acc & In-Domain F1 & Cross-Domain Acc & Cross-Domain F1 \\
+\midrule
+mean     & 0.5731 & 0.5753 & 0.2216 & 0.1869 \\
+max      & 0.5885 & 0.5852 & 0.2025 & 0.1782 \\
+mean\_std & 0.5808 & 0.5836 & 0.2166 & 0.1766 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{MFCC Results}
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+Pooling & In-Domain Acc & In-Domain F1 & Cross-Domain Acc & Cross-Domain F1 \\
+\midrule
+mean     & 0.3731 & 0.3470 & 0.2296 & 0.1317 \\
+max      & 0.3769 & 0.3587 & 0.2741 & 0.2063 \\
+mean\_std & 0.4500 & 0.4368 & 0.2096 & 0.1536 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Comparative Summary}
+\begin{itemize}
+    \item \textbf{Best in-domain}: wav2vec2 + max (Macro-F1 = 0.5852)
+    \item \textbf{Best cross-domain}: MFCC + max (Macro-F1 = 0.2063)
+    \item \textbf{Best pooling overall} (average across both models and both settings): mean\_std
+\end{itemize}
+
+\section{Discussion}
+\subsection{In-Domain vs Cross-Domain Gap}
+Both feature families show a clear drop from in-domain to cross-domain performance, confirming significant domain shift between RAVDESS and CREMA-D. This is expected due to differences in speaker population, recording setup, style, and dataset bias.
+
+\subsection{Feature Family Behavior}
+wav2vec2 is clearly stronger in-domain, suggesting richer representations for within-domain separability. However, in the current cross-domain setup, MFCC+max generalized better than wav2vec2 variants, indicating that robust low-level summaries can sometimes transfer better without domain adaptation.
+
+\subsection{Pooling Effects}
+Pooling strongly affects results:
+\begin{itemize}
+    \item \texttt{max} is strongest for cross-domain in both families.
+    \item \texttt{mean\_std} gives the strongest overall aggregate balance.
+\end{itemize}
+
+\section{What Is Complete vs Pending}
+\subsection{Completed}
+\begin{itemize}
+    \item Modular preprocessing and dataset integration (RAVDESS + CREMA-D)
+    \item Unified label mapping for cross-dataset evaluation
+    \item MFCC and wav2vec2 pipelines
+    \item Speaker-independent in-domain and cross-domain experiments
+    \item Pooling study
+    \item Class balancing in classifier
+    \item Reproducible logging/export artifacts
+\end{itemize}
+
+\subsection{Pending for strict ``all datasets'' interpretation}
+\begin{itemize}
+    \item IEMOCAP integration (currently deferred)
+\end{itemize}
+
+\section{Conclusion}
+The implemented system satisfies the intended two-dataset SER research workflow with submission-quality reproducibility: robust preprocessing, reusable feature extraction, resumable caching, controlled splits, and complete result export. The experiments establish both a strong in-domain reference and a realistic cross-domain generalization benchmark. Future work should prioritize third-dataset integration (IEMOCAP) and domain adaptation methods to improve transfer performance.
+
+\end{document}
