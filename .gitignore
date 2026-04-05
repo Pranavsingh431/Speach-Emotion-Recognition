@@ -1,0 +1,25 @@
+# Data (large/private)
+Radvess/
+Crema D/
+features/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Notebooks / logs / artifacts
+.ipynb_checkpoints/
+*.log
+*.tmp
+*.cache
+
+# OS
+.DS_Store
+Thumbs.db
