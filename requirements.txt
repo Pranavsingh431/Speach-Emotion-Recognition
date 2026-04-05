@@ -1,0 +1,9 @@
+numpy
+scipy
+scikit-learn
+pandas
+soundfile
+librosa
+torch
+transformers
+python_speech_features
