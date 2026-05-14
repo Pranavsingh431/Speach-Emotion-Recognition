@@ -1,101 +1,220 @@
 # Speech Emotion Recognition
 
-Research-grade Speech Emotion Recognition (SER) pipeline with:
-- Dataset preprocessing and label unification
-- MFCC baseline and wav2vec2 representations
-- In-domain and cross-domain evaluation
-- Pooling study (`mean`, `max`, `mean_std`)
-- Reproducible split export and automatic result logging
+Research repository for **cross-corpus Speech Emotion Recognition (SER)** with:
 
-## Datasets
+- hybrid **SSL + MFCC** representations
+- configurable **alignment** (`none`, `mmd`, `coral`)
+- configurable **blending** (`none`, `scalar`, `fwaa`, `gaa`)
+- multiple **classifier heads** (`logreg`, `svm`, `mlp`, `aplin`, `transformer`)
+- **in-domain** and **cross-domain** evaluation on RAVDESS, CREMA-D, and IEMOCAP
 
-This repository excludes raw data. Place datasets locally in:
-- `Radvess/`
-- `Crema D/`
+This repository is prepared for research presentation, academic reproducibility, and public code review. Raw datasets are **not** included.
 
-## Core Scripts
+## Repository Status
 
-- `ravdess_preprocessing.py`
-  - Audio preprocessing (mono, 16kHz, normalization)
-  - RAVDESS + CREMA-D label/speaker parsing
-- `wav2vec2_cross_dataset_eval.py`
-  - wav2vec2 cached pipeline
-  - MFCC baseline pipeline
-  - In-domain and cross-domain experiments
-  - Pooling study
-  - Result export (`results/`)
-- `baseline_ser_mfcc.py`, `cross_dataset_eval.py`
-  - Legacy/standalone MFCC baselines
+- Main research pipeline: [`strict_modular_ser.py`](./strict_modular_ser.py)
+- Full experiment sweep: [`full_run.py`](./full_run.py)
+- Legacy / earlier experiment scripts are retained for traceability and comparison.
+
+## Project Structure
+
+```text
+.
+├── strict_modular_ser.py        # Main modular SER pipeline
+├── full_run.py                  # Exhaustive experiment runner
+├── phase*.py                    # Phase-based experimental scripts
+├── run_all_phases.py            # Sequential runner for phase scripts
+├── progress_utils.py            # Logging helpers
+├── results_utils.py             # Result serialization helpers
+├── svm_utils.py                 # SVM experiment utilities
+├── coral.py                     # CORAL alignment utilities
+├── ravdess_preprocessing.py     # Dataset preprocessing helpers
+├── baseline_ser_mfcc.py         # Legacy MFCC baseline
+├── cross_dataset_eval.py        # Legacy cross-dataset baseline
+├── wav2vec2_cross_dataset_eval.py
+│                                # Earlier wav2vec2 pipeline
+├── SER_Report.tex               # Current research paper source
+├── cross_corpus_ser_paper.tex   # Older paper draft
+├── requirements.txt             # Reproducible Python dependencies
+└── README.md
+```
 
 ## Environment
 
+- Recommended Python: **3.10 or 3.11**
+- PyTorch + Transformers are required for SSL backbones.
+- `matplotlib` is used for confusion matrix export.
+
+### Setup
+
 ```bash
-python -m pip install -U numpy scipy scikit-learn pandas soundfile librosa torch transformers
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-## Run Experiments
+## Dataset Preparation
 
-Full run:
-```bash
-python wav2vec2_cross_dataset_eval.py --run_mode full
+Datasets must be downloaded manually and kept **outside version control**.
+
+Expected local directories:
+
+```text
+Radvess/
+Crema D/
+IEMOCAP/
+MAED/     # optional; local support exists but not required for the main paper sweep
 ```
 
-Optional quick check:
-```bash
-python wav2vec2_cross_dataset_eval.py --run_mode debug
+### Notes
+
+- The repository `.gitignore` excludes all raw corpora and large media.
+- Do **not** commit dataset folders, extracted features, or cached model artifacts.
+- If you want a single common root, place datasets in the repository root as above.
+
+## Main Pipeline
+
+The main pipeline implemented in [`strict_modular_ser.py`](./strict_modular_ser.py) follows:
+
+```text
+audio
+├── SSL branch   -> extract_ssl -> align_ssl -> blend_ssl
+├── MFCC branch  -> extract_mfcc
+└── fusion       -> concat([SSL_final ; MFCC]) -> classifier
 ```
 
-## Output Artifacts
+Key design constraints:
 
-### Feature cache
-- `features/ravdess/*.npy`
-- `features/crema_d/*.npy`
+- alignment is applied **only** to SSL features
+- MFCC features are **never aligned**
+- fusion happens **after** SSL blending
+- the classifier sees only the concatenated hybrid representation
 
-### Experiment results
-Stored under `results/`:
-- `results.json` (append-style detailed records)
-- `results.csv` (append-style tabular records)
-- `split_info.json` (speaker split + seed)
-- `cm_{feature}_{pooling}_{eval_type}.csv` (confusion matrices)
-- `final_comparison.csv` (summary rows for report tables)
+## Running Experiments
 
-## Latest Full-Run Highlights
+### Quick single experiment
 
-Speaker split (seed=42):
-- Train speakers: 19
-- Test speakers: 5
-- Speaker overlap: 0
+```bash
+python - <<'PY'
+from strict_modular_ser import run_experiment
 
-### wav2vec2
+config = {
+    "src_dataset": "ravdess",
+    "tgt_dataset": "crema",
+    "backbone": "hubert",
+    "alignment": "mmd",
+    "blending": "gaa",
+    "alpha": None,
+    "classifier": "logreg",
+}
 
-| Pooling | In-Domain Acc | In-Domain F1 | Cross-Domain Acc | Cross-Domain F1 |
-|---|---:|---:|---:|---:|
-| `mean` | 0.5538 | 0.5569 | 0.2776 | 0.2658 |
-| `max` | 0.5885 | 0.5848 | 0.2368 | 0.2244 |
-| `mean_std` | 0.5769 | 0.5755 | 0.2549 | 0.2530 |
+print(run_experiment(config))
+PY
+```
 
-### MFCC
+### Fast debug run
 
-| Pooling | In-Domain Acc | In-Domain F1 | Cross-Domain Acc | Cross-Domain F1 |
-|---|---:|---:|---:|---:|
-| `mean` | 0.3731 | 0.3470 | 0.2295 | 0.1316 |
-| `max` | 0.3769 | 0.3587 | 0.2741 | 0.2065 |
-| `mean_std` | 0.4500 | 0.4368 | 0.2106 | 0.1547 |
+```bash
+python - <<'PY'
+from strict_modular_ser import run_experiment
 
-Best in-domain Macro-F1:
-- wav2vec2 + `max`: **0.5848**
+config = {
+    "src_dataset": "ravdess",
+    "tgt_dataset": "crema",
+    "backbone": "hubert",
+    "alignment": "coral",
+    "blending": "gaa",
+    "alpha": None,
+    "classifier": "transformer",
+    "ultra_debug": True,
+}
 
-Best cross-domain Macro-F1:
-- wav2vec2 + `mean`: **0.2658**
+print(run_experiment(config))
+PY
+```
 
-Summary:
-- Better in-domain model: `wav2vec2`
-- Better cross-domain model: `wav2vec2`
-- Best pooling overall: `mean_std`
+### Full sweep
 
-## Notes
+```bash
+python full_run.py
+```
 
-- wav2vec2 caching makes reruns much faster by avoiding recomputation.
-- Logistic Regression uses `class_weight="balanced"` for class imbalance handling.
-- Common cross-dataset label set:
-  - `angry`, `disgust`, `fear`, `happy`, `neutral`, `sad`
+The full sweep covers:
+
+- in-domain and cross-domain pairs for `ravdess`, `crema`, `iemocap`
+- plain baseline runs
+- alignment / blending / classifier combinations
+
+## Current Results Snapshot
+
+The repository includes logged full-run results in local `results/results.json` during experimentation. The strongest observed cross-domain settings from the current run history are:
+
+| Source -> Target | Backbone | Alignment | Blending | Classifier | Macro-F1 |
+|---|---|---|---|---|---:|
+| ravdess -> crema | hubert | mmd | gaa | logreg | 0.4111 |
+| ravdess -> crema | hubert | mmd | scalar (`alpha=0.5`) | logreg | 0.3995 |
+| ravdess -> crema | hubert | mmd | none | mlp | 0.3775 |
+| ravdess -> crema | hubert | mmd | none | logreg | 0.3730 |
+| crema -> ravdess | hubert | mmd | gaa | svm | 0.3715 |
+
+Observed aggregate trends from the recorded run matrix:
+
+- **HuBERT** is the strongest backbone on average.
+- **CORAL** and **MMD** both help on average, but gains are pair-dependent.
+- **GAA** appears in several top configurations, but is not uniformly best in average-case analysis.
+- **Logistic regression** remains highly competitive despite stronger nonlinear heads being available.
+
+## Outputs
+
+The main pipeline writes experiment artifacts locally under:
+
+```text
+results/
+└── confusion/
+feature_cache/
+```
+
+These are intentionally ignored by Git.
+
+## Reproducibility Notes
+
+- Set a consistent random seed where exposed by the scripts.
+- Cached features are separated from source code and excluded from version control.
+- The project includes explicit dependency versions in [`requirements.txt`](./requirements.txt).
+- The main modular pipeline supports reproducible configuration dictionaries for experiments.
+
+## Legacy Scripts
+
+Several scripts remain in the repository because they document earlier experimental phases:
+
+- `phase0_baseline.py` to `phase13_svm_gaa_reverse.py`
+- `wav2vec2_cross_dataset_eval.py`
+- `baseline_ser_mfcc.py`
+- `cross_dataset_eval.py`
+
+These are kept for research traceability, not because they are the preferred public entry points. For new work, use:
+
+- [`strict_modular_ser.py`](./strict_modular_ser.py)
+- [`full_run.py`](./full_run.py)
+
+## Paper
+
+- Current report: [`SER_Report.tex`](./SER_Report.tex)
+- Earlier draft retained: [`cross_corpus_ser_paper.tex`](./cross_corpus_ser_paper.tex)
+
+## What Is Not Committed
+
+The public repository should **not** contain:
+
+- raw datasets
+- extracted features
+- model checkpoints
+- logs / outputs / cache
+- virtual environments
+- notebook checkpoints
+- local secrets or `.env` files
+
+## License / Usage
+
+Add a project license before public release if you want explicit reuse permissions. Until then, treat the repository as research code accompanying ongoing work.
